@@ -79,6 +79,7 @@ public:
 							for (int b=n_girls; b<n_girls+n_boys; b++) if (!(boy_in_double&(1<<b))) {
 								 roomeds.push_back(make_pair(b,b));
 							}
+							assert(roomeds.size() == n_girls+n_boys-n_doubles);
 
 							Graph G(n_girls+n_boys+n_singles);
 							auto E = boost::get(boost::edge_weight, G);
