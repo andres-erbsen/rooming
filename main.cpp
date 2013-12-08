@@ -11,15 +11,9 @@
 
 #include "for_each_combination.h"
 #include "pairings.h"
-#include "dsr-bipartite-matching.h"
+#include "lap.h"
 
 using namespace std;
-
-typedef boost::adjacency_list<boost::vecS, boost::vecS,
-                              boost::bidirectionalS,
-                              boost::property<boost::vertex_name_t, std::string>,
-                              boost::property<boost::edge_weight_t,
-                                              double> > Graph;
 
 template <typename T>
 void printVec(vector<T> values) {
@@ -31,7 +25,8 @@ public:
 	Rooming(int n_girls, int n_boys, int n_singles, vector<string> room_names) :
 		n_girls(n_girls), n_boys(n_boys), n_singles(n_singles),
 		n_doubles(room_names.size() - n_singles), room_names(room_names),
-		graphs_tried(0), best_utility(0), max_utility_from_rooms(0.0) {person_names.reserve(n_girls+n_boys);}
+		graphs_tried(0), best_utility(0), max_utility_from_rooms(0.0)
+		{person_names.reserve(n_girls+n_boys); people_in_room.resize(n_singles+n_doubles);}
 
 	void add_person(bool is_male, string name, vector<double>&& room_pref,  vector<double>&& mate_pref) {
 		max_utility_from_rooms += *std::max_element(std::begin(room_pref), std::end(room_pref)); 
@@ -50,6 +45,14 @@ public:
 		for ( const auto& v : room_utility ) assert(v.size() == room_names.size());
 		assert(2*n_doubles + n_singles == n_girls + n_boys);
 
+		assigncost = new double*[n_doubles + n_singles];
+		for (int i = 0; i<n_doubles + n_singles; i++) {
+			assigncost[i] = new double[n_doubles + n_singles];
+		}
+		rowsol = new int[n_doubles + n_singles];
+		colsol = new int[n_doubles + n_singles];
+		out_u = new double[n_doubles + n_singles];
+		out_v = new double[n_doubles + n_singles];
 
 		for (doubles_for_girls = 0; doubles_for_girls<=n_doubles; ++doubles_for_girls) {
 			doubles_for_boys = n_doubles - doubles_for_girls;
@@ -102,42 +105,29 @@ public:
 				assert(n_girls+n_boys-n_doubles == n_singles+n_doubles);
 				assert(roomeds.size() == n_singles+n_doubles);
 
-				Graph G(roomeds.size() + (n_singles+n_doubles));
-				auto E = boost::get(boost::edge_weight, G);
+				for (int i=0; i<n_singles+n_doubles; ++i) {
+					for (int j=0; j<n_singles+n_doubles; ++j) assigncost[i][j] = 1e444;
+				}
 				double current_utility = 0;
 				for (int i=0; i<roomeds.size(); ++i) {
 					int l = roomeds[i].first, r = roomeds[i].second;
 					current_utility += roommate_utility[l][r];
 					// cout << '(' << l << ',' << r << ") ";
 					if (l==r) for (int room = 0; room<n_singles; ++room) {
-						E[boost::add_edge(i,roomeds.size()+ room, G).first] = room_utility[l][room];
+						assigncost[i][room] = - (room_utility[l][room]);
 					} else for (int room = n_singles; room<n_singles+n_doubles; ++room) {
-						E[boost::add_edge(i, roomeds.size()+room, G).first] = room_utility[l][room] + room_utility[r][room];
+						assigncost[i][room] = - (room_utility[l][room] + room_utility[r][room]);
 					}
 				}
 				if (current_utility + max_utility_from_rooms < best_utility) continue;
-				// cout << "\t";
-				// FIXME: find_augmenting_path finds a circular path and infinite-loops while trying to represent it
-				auto matching = get_maximum_weight_bipartite_matching(G, roomeds.size(), boost::get(boost::vertex_index, G), boost::get(boost::edge_weight, G));
-				for (unsigned int i=0; i < matching.size(); ++i) {
-					int room = matching[i].second-roomeds.size();
-					int l = roomeds[matching[i].first].first, r = roomeds[matching[i].first].second;
-					current_utility += room_utility[l][room];
-					// cout << room_names[room] << ":";
-					// cout << person_names[l];
-					if (l!=r) {
-						current_utility += room_utility[r][room];
-						// cout << ',' << person_names[r];
-					}
-					// cout << " ";
-				}
-				// cout << "\t" << current_utility;
-				// cout << endl;
+				current_utility -= lap(n_singles+n_doubles, assigncost, rowsol, colsol, out_u, out_v);
+
 				if (current_utility > best_utility) {
 					best_utility = current_utility;
-					best_matching = move(matching);
-					best_roomeds = move(roomeds);
-					cout << best_utility << "\t";
+					for (int room = 0; room < n_singles+n_doubles; ++room) {
+						people_in_room[room] = roomeds[colsol[room]];
+					}
+					cout << best_utility << " ";
 					for ( const auto& room : this->get() ) {
 						cout << room.first<<":";
 						cout << room.second[0];
@@ -146,7 +136,11 @@ public:
 					}
 					cout << endl;
 				}
+
 				graphs_tried++;
+				if (graphs_tried % 10000 == 0) {
+					cout << graphs_tried << endl;
+				}
 			}
 		}
 		return false;
@@ -154,14 +148,13 @@ public:
 
 	vector< pair<string, vector<string> > > get() {
 		vector< pair< string, vector<string> > > ret;
-		for (unsigned int i=0; i < best_matching.size(); ++i) {
-			int room = best_matching[i].second-best_roomeds.size();
-			int l = best_roomeds[best_matching[i].first].first, r = best_roomeds[best_matching[i].first].second;
-			ret.push_back(make_pair(room_names[room], vector<string>()));
-			ret.rbegin()->second.push_back(person_names[l]);
-			if (l!=r) {
-				ret.rbegin()->second.push_back(person_names[r]);
-			}
+		for (int room = 0; room < n_singles+n_doubles; ++room) {
+			auto people = people_in_room[room];
+			int l = people.first, r = people.second;
+			vector<string> rr;
+			rr.push_back(person_names[l]);
+			if (r != l) rr.push_back(person_names[r]);
+			ret.push_back(make_pair( room_names[room], rr ));
 		}
 		return ret;
 	}
@@ -179,10 +172,13 @@ private:
 	int singles_for_girls, singles_for_boys, doubles_for_girls, doubles_for_boys;
 	vector<int>::iterator girls_in_doubles_begin, girls_in_doubles_end;
 	uint64_t girl_in_double;
+	double **assigncost;
+	double *out_u, *out_v;
+	int *rowsol, *colsol;
 
 	// results:
 	double best_utility;
-	vector<pair<int,int> > best_roomeds, best_matching;
+	vector<pair<int,int> > people_in_room;
 public:
 	long long int graphs_tried;
 };
