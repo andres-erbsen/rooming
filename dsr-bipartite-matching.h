@@ -1,6 +1,7 @@
-// http://www.salilab.org/~drussel/bipartite_matching.html
-// Daniel Russel <drussel at salilab.org>
-// "I'm putting this code into the public domain in case anyone is interested in using it."
+//  (C) Copyright Daniel Russel 2009. Distributed under the Boost
+//  Software License, Version 1.0. (See accompanying file
+//  copy at http://www.boost.org/LICENSE_1_0.txt)
+
 
 #ifndef DSR_BIPARTITE_MATCHING_H
 #define DSR_BIPARTITE_MATCHING_H
@@ -28,13 +29,13 @@ namespace bipartite_matching_detail {
     return Edge(u,v);
   }
 
- 
+
   inline void flip_edge(int u, int v, UAdjacency &ua, VAdjacency &va){
     // add edge u,v to the matching
     for (unsigned int i=0; i< ua[u].size(); ++i){
       if (ua[u][i].first==v){
         Weight w= ua[u][i].second;
-	  
+
         ua[u].erase(ua[u].begin() + i);
         assert(va[v].first == -1);
         va[v]=WeightedEdge(u, w);
@@ -66,7 +67,7 @@ namespace bipartite_matching_detail {
       }
     }
   }
- 
+
   inline void relax(int v,
                     Weight vdist,
                     const WeightedEdge &vadj,
@@ -80,7 +81,7 @@ namespace bipartite_matching_detail {
   }
 
 
-  inline void find_augmenting_path(const Prime &up, const Prime &vp, 
+  inline void find_augmenting_path(const Prime &up, const Prime &vp,
                                    const UAdjacency& uadj, const VAdjacency &vadj,
                                    std::back_insert_iterator<Edges > out){
     if (up.empty() || vp.empty()) return;
@@ -199,7 +200,14 @@ namespace bipartite_matching_detail {
 
 
 /** Compute the maximum weight bipartite matching on a bipartite
-    graph.
+    graph. It uses the '''augmenting path algorithm''' that finds the
+    matching by finding an augmenting path from each x in one set to
+    the other set and adding it to the matching if it exists. As each
+    path can be found in O(E) time, the running time is O(V E). This
+    solution is equivalent to adding a ''super source'' s with edges
+    to all vertices in X, and a ''super sink'' t with edges from all
+    vertices in Y, and finding a maximal flow from s to t. All edges
+    with flow from X to Y then constitute a maximum matching.
 
     \param[in] g A boost edge and vertex list bipartite graph
     \param[in] na Vertices [0,na) must be in the first set.
